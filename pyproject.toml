@@ -128,5 +128,8 @@ exclude = [
     "src/hssm/likelihoods/hddm_wfpt/wfpt.cpp",
 ]
 
+[tool.ruff.pydocstyle]
+convention = "google"
+
 [tool.mypy]
 ignore_missing_imports = true

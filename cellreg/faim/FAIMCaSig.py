@@ -1,329 +1,402 @@
+"""Functions for performing fully affine-invariant methods to align FOVs."""
+
+import logging
 from copy import deepcopy
-import glob
 from multiprocessing.pool import ThreadPool
-import os.path
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 import cv2 as cv
-import skimage.io
 import numpy as np
 import pandas as pd
-from skimage import measure
 from cellpose import models, transforms
+from skimage import io, measure
 from skimage.segmentation import find_boundaries
 
 from .asift import affine_detect
-from .find_obj import init_feature, filter_matches
+from .find_obj import filter_matches, init_feature
 
-def AlignIm(path_to_FOV, path_to_masks=[], preprocess=False, diameter=None, templateID=0 ,iterNum=100, method='sift'):
-    """ perform fully affine invariant method on calcium imaging field-of-view (FOV) images.
+logging.basicConfig(level=logging.INFO)
 
-    The function save the transformation matmatrices and the registered FOV images under the input folder.
 
-    Parameters
-    -------------
-    path_to_FOV: str
-        the path of the folder containing FOV images
-    path_to_masks: str (default [ ])
-        the path of the folder containing ROI masks. If the value is empty, the code will automatically extract ROI masks using cellpose. If the ROI masks have already obtained, provide the path to the folder can save time.
-    preprocess: bool (default False)
-        whether or not to apply contrast adjustment for the original FOV images
-    diameter: int (default None)
-        neuron diameter. If the default value is None, the diameter will be estimated by Cellpose from the original FOV images. Otherwise, the neuron will be detected based on the given diameter value.
-    templateID: int (default 0)
-        choose which FOV image as a template for alignment
-    iterNum: int (default 100)
-        the number of iterations for fully affine invariant method
-    method: name of the fully affine invariant method (default ['sift'])
-        name of the method:
-        'akaze' corresponds to 'AAKAZE'
-        'sift' corresponds to 'ASIFT'
-        'surf' corresponds to 'ASURF'
-        'brisk' corresponds to 'ABRISK'
-        'orb' corresponds to 'AORB'
+def align_images(
+    fov_path: str,
+    masks_dir_path: Optional[str] = None,
+    output_dir_path: Optional[str] = None,
+    preprocess: bool = False,
+    diameter: Optional[int] = None,
+    template_id: int = 0,
+    iteration_count: int = 100,
+    method: str = "sift",
+    cellpose_args: dict = {"gpu": True, "model_type": "cyto2"},
+) -> Tuple[List, List, List]:
+    """Perform fully affine invariant method on calcium imaging FOV images.
 
-    Returns
-    ----------------
-    Tmatrices: list of the trnaformation matrices
-    regImages: list of the registered FOV images
-    regROIs: list of the registered ROIs masks
+    The function saves the transformation matrices and the registered FOV images
+    under the specified output folder or input folder if not specified.
 
+    Args:
+        fov_path (str): Path of the folder containing FOV images.
+        masks_dir_path (Optional[str], optional): Path of the folder containing ROI
+            masks. If the value is None, the function will automatically extract ROI
+            masks using Cellpose. If the ROI masks are already obtained, providing the
+            path to the folder can save time. Defaults to None.
+        output_dir_path (Optional[str], optional): Directory where outputs are written.
+            Defaults to None, meaning outputs will be written in the input directory.
+        preprocess (bool, optional): Whether to apply contrast adjustment for the
+            original FOV images. Defaults to False.
+        diameter (Optional[int], optional): Neuron diameter. If None, the diameter will
+            be estimated by Cellpose from the original FOV images. Otherwise, the neuron
+            will be detected based on the provided diameter value. Defaults to None.
+        template_id (int, optional): Choose which FOV image as a template for alignment.
+            Defaults to 0.
+        iteration_count (int, optional): The number of iterations for the method.
+            Defaults to 100.
+        method (str, optional): Name of the fully affine invariant method.
+            Options include:'akaze', 'sift', 'surf', 'brisk', and 'orb'.
+            Defaults to 'sift'.
+        cellpose_args (dict): arguments to models.Cellpose()
+
+    Returns:
+        Tuple[List, List, List]: Lists of the transformation matrices,
+            registered FOV images,and registered ROI masks respectively.
     """
-    files=get_file_names(path_to_FOV)
-    generate_summary(templateID, files)
-    imgs=[]
-    if preprocess==True:
-        imgs = Image_enhance_contrast(files)
+    filenames = get_file_names(fov_path)
+    generate_summary(template_id, filenames)
+    images = []
+
+    if preprocess:
+        images = enhance_image_contrast(filenames)
     else:
-        imgs = [skimage.io.imread(f) for f in files]
+        images = [io.imread(file) for file in filenames]
 
-    nimg = len(imgs)
+    num_images = len(images)
 
-    if path_to_masks == []:
-        model = models.Cellpose(gpu=True, model_type='cyto2')
-        channels = []
-        for idx in range(nimg):
-            channels.append([0,0])
+    if masks_dir_path is None:
+        model = models.Cellpose(**cellpose_args)
+        channels = [[0, 0] for _ in range(num_images)]
 
-        if diameter==None:
-            masks, flows, styles, diams = model.eval(imgs, diameter=None, channels=channels)
-        else:
-            masks, flows, styles, diams = model.eval(imgs, diameter=diameter, channels=channels)
-
-        ROIs_mask = generate_ROIs_mask(masks, imgs)
+        masks, _, _, _ = model.eval(images, diameter=diameter, channels=channels)
+        roi_masks = generate_rois_mask(masks, images)
     else:
-        ROI_files=get_file_names(path_to_masks)
-        ROIs_mask = [skimage.io.imread(f) for f in ROI_files]
+        roi_files = get_file_names(masks_dir_path)
+        roi_masks = [io.imread(file) for file in roi_files]
+
+    masks_output_dir = Path(output_dir_path or fov_path) / "ROIs_mask"
+    masks_output_dir.mkdir(parents=True, exist_ok=True)
+
+    for i, file in enumerate(filenames):
+        io.imsave(masks_output_dir / file.name, roi_masks[i])
+
+    template_image = images[template_id]
+    template_image = cv.normalize(
+        template_image, template_image, 0, 255, cv.NORM_MINMAX
+    )
+    template_roi = roi_masks[template_id]
+
+    transformation_matrices = []
+    registered_images = []
+    registered_rois = []
+
+    method = method.lower()
+    logging.info(f"A{method.upper()} is running")
+    for j, image in enumerate(images):
+        if j != template_id:
+            logging.info(f"registering {filenames[j].name}")
+            reg_image = cv.normalize(image, image, 0, 255, cv.NORM_MINMAX)
+            reg_roi = roi_masks[j]
+            t_matrix, reg_im, reg_roi = apply_affine_transformation(
+                template_image,
+                template_roi,
+                reg_image,
+                reg_roi,
+                iteration_count,
+                method,
+            )
+            transformation_matrices.append(t_matrix)
+            registered_images.append(reg_im)
+            registered_rois.append(reg_roi)
+
+    output_results(
+        output_dir_path or fov_path,
+        filenames,
+        template_id,
+        template_image,
+        template_roi,
+        transformation_matrices,
+        registered_images,
+        registered_rois,
+        method,
+    )
+
+    return transformation_matrices, registered_images, registered_rois
 
 
-    if not (os.path.exists(path_to_FOV+'/ROIs_mask/')):
-        os.makedirs(path_to_FOV+'/ROIs_mask/')
-    for i in range(len(files)):
-        skimage.io.imsave(path_to_FOV+'/ROIs_mask/' + os.path.split(files[i])[-1], ROIs_mask[i])
+def get_file_names(folder: str) -> Optional[List[Path]]:
+    """Get image filenames from a folder.
 
-    Template = imgs[templateID] # FOV_template
-    Template = cv.normalize(Template, Template, 0, 255, cv.NORM_MINMAX)
-    Template_ROI = ROIs_mask[templateID]
+    Args:
+        folder (Path): The folder path containing images.
 
-    Tmatrices=[]
-    regImages=[]
-    regROIs=[]
+    Returns:
+        Union[List[Path], None]: A list of image file paths if found, or None otherwise.
 
-    if method=='akaze':
-        print('A'+ method.upper() + ' is running')
-        for j in range(len(imgs)):
-            if j != templateID:
-                print('registering ' + os.path.split(files[j])[-1])
-                Regimage = imgs[j]
-                Regimage = cv.normalize(Regimage, Regimage, 0, 255, cv.NORM_MINMAX)
-                Regimage_ROI = ROIs_mask[j]
-                T_matrix, regIm, regROI= Apply_affine_methods(Template, Template_ROI, Regimage, Regimage_ROI, iterNum, 'akaze')
-                Tmatrices.append(T_matrix)
-                regImages.append(regIm)
-                regROIs.append(regROI)
+    Raises:
+        ValueError: If no images are found or if the folder contains only one image.
+    """
+    folder = Path(folder)
+    image_extensions = [".png", ".jpg", ".jpeg", ".tif", ".tiff"]
+    image_paths = [
+        image for ext in image_extensions for image in folder.glob(f"*{ext}")
+    ]
+    unique_image_paths = list(set(image_paths))
 
-        output_results(path_to_FOV, files, templateID, Template, Template_ROI, Tmatrices, regImages, regROIs, 'akaze')
-        return Tmatrices, regImages, regROIs
+    if not unique_image_paths:
+        raise ValueError("Load image failed: please check the path")
+    elif len(unique_image_paths) == 1:
+        raise ValueError("Error: the folder needs to contain at least two images")
 
-    elif method=='sift':
-        print('A'+ method.upper() + ' is running')
-        for j in range(len(imgs)):
-            if j != templateID:
-                print('registering ' +  os.path.split(files[j])[-1])
-                Regimage = imgs[j]
-                Regimage = cv.normalize(Regimage, Regimage, 0, 255, cv.NORM_MINMAX)
-                Regimage_ROI = ROIs_mask[j]
-                T_matrix, regIm, regROI= Apply_affine_methods(Template, Template_ROI, Regimage, Regimage_ROI, iterNum, 'sift')
-                Tmatrices.append(T_matrix)
-                regImages.append(regIm)
-                regROIs.append(regROI)
-
-        output_results(path_to_FOV, files, templateID, Template, Template_ROI, Tmatrices, regImages, regROIs, 'sift')
-        return Tmatrices, regImages, regROIs
-
-    elif method=='surf':
-        print('A'+ method.upper() + ' is running')
-        for j in range(len(imgs)):
-            if j != templateID:
-                print('registering ' +  os.path.split(files[j])[-1])
-                Regimage = imgs[j]
-                Regimage = cv.normalize(Regimage, Regimage, 0, 255, cv.NORM_MINMAX)
-                Regimage_ROI = ROIs_mask[j]
-                T_matrix, regIm, regROI= Apply_affine_methods(Template, Template_ROI, Regimage, Regimage_ROI, iterNum, 'surf')
-                Tmatrices.append(T_matrix)
-                regImages.append(regIm)
-                regROIs.append(regROI)
-
-        output_results(path_to_FOV, files, templateID, Template, Template_ROI, Tmatrices, regImages, regROIs, 'surf')
-        return Tmatrices, regImages, regROIs
-
-    elif method=='brisk':
-        print('A'+ method.upper() + ' is running')
-        for j in range(len(imgs)):
-            if j != templateID:
-                print('registering ' +  os.path.split(files[j])[-1])
-                Regimage = imgs[j]
-                Regimage = cv.normalize(Regimage, Regimage, 0, 255, cv.NORM_MINMAX)
-                Regimage_ROI = ROIs_mask[j]
-                T_matrix, regIm, regROI= Apply_affine_methods(Template, Template_ROI, Regimage, Regimage_ROI, iterNum, 'brisk')
-                Tmatrices.append(T_matrix)
-                regImages.append(regIm)
-                regROIs.append(regROI)
-
-        output_results(path_to_FOV, files, templateID, Template, Template_ROI, Tmatrices, regImages, regROIs, 'brisk')
-        return Tmatrices, regImages, regROIs
-
-    elif method=='orb':
-        print('A'+ method.upper() + ' is running')
-        for j in range(len(imgs)):
-            if j != templateID:
-                print('registering '  + os.path.split(files[j])[-1])
-                Regimage = imgs[j]
-                Regimage = cv.normalize(Regimage, Regimage, 0, 255, cv.NORM_MINMAX)
-                Regimage_ROI = ROIs_mask[j]
-                T_matrix, regIm, regROI= Apply_affine_methods(Template, Template_ROI, Regimage, Regimage_ROI, iterNum, 'orb')
-                Tmatrices.append(T_matrix)
-                regImages.append(regIm)
-                regROIs.append(regROI)
-
-        output_results(path_to_FOV, files, templateID, Template, Template_ROI, Tmatrices, regImages, regROIs, 'orb')
-        return Tmatrices, regImages, regROIs
+    return unique_image_paths
 
 
-def get_file_names(folder):
-    image_names = []
-    image_names.extend(glob.glob(folder + '/*.png'))
-    image_names.extend(glob.glob(folder + '/*.jpg'))
-    image_names.extend(glob.glob(folder + '/*.jpeg'))
-    image_names.extend(glob.glob(folder + '/*.tif'))
-    image_names.extend(glob.glob(folder + '/*.tiff'))
-    if image_names==[]:
-        print('Load image failed: please check the path')
-    elif len(image_names)==1:
-        print('Error: the folder needs to contain at least two images')
-    else:
-        return image_names
+def generate_summary(template_id: int, files: list[str]) -> None:
+    """Generates a summary of template and registered images.
+
+    Args:
+        template_id (int): The index of the template image in the files list.
+        files (list): List of file paths.
+
+    Returns:
+        None
+    """
+    template_image = Path(files[template_id]).name
+    logging.info("Template image: %s", template_image)
+
+    regfiles = [Path(files[j]).name for j in range(len(files)) if j != template_id]
+
+    logging.info("Registered images:")
+    logging.info(regfiles)
 
 
-def generate_summary(ID, files):
-    print('Template image:' + os.path.split(files[ID])[-1])
-    regfiles=[]
-    for j in range(len(files)):
-        if j != ID:
-            regfiles.append(os.path.split(files[j])[-1])
-    print('Registered images:')
-    print(regfiles)
+def enhance_image_contrast(image_names: List[str]) -> List[np.ndarray]:
+    """Enhance the contrast of a list of images.
 
+    For each image in the list:
+    1. Read the image from the provided name.
+    2. If the pixel intensity range is more than 0:
+        - Normalize it using the `normalize99` function.
+        - Clip the pixel intensities to be within the [0, 1] range.
+    3. Multiply by 255 and convert to uint8 data type.
 
-def Image_enhance_contrast(image_names):
-    images=[]
-    for n in range(len(image_names)):
-        img = skimage.io.imread(image_names[n])
-        if np.ptp(img)>0:
+    Args:
+        image_names: List of image filenames.
+
+    Returns:
+        List of enhanced images.
+    """
+    enhanced_images = []
+
+    for image_name in image_names:
+        img = io.imread(image_name)
+        if np.ptp(img) > 0:
             img = transforms.normalize99(img)
             img = np.clip(img, 0, 1)
         img *= 255
         img = np.uint8(img)
-        images.append(img)
-    return images
+        enhanced_images.append(img)
+
+    return enhanced_images
 
 
-def generate_ROIs_mask(masks, imgs):
-    ROIs_mask=[]
-    nimg = len(imgs)
-    for idx in range(nimg):
-        raw_mask= np.zeros((imgs[idx].shape[0], imgs[idx].shape[1]), np.uint8)
-        maski = masks[idx]
-        for n in range(int(maski.max())):
-            ipix = (maski==n+1).nonzero()
-            if len(ipix[0])>60:
-                raw_mask[ipix[0],ipix[1]] = 255
-        ROIs_mask.append(raw_mask)
-    return ROIs_mask
+def generate_rois_mask(
+    masks: List[np.ndarray], imgs: List[np.ndarray]
+) -> List[np.ndarray]:
+    """Generate a list of masks for ROIs based on input masks andimages.
+
+    Args:
+        masks (List[np.ndarray]): A list of masks where each mask corresponds to an
+            image in `imgs`. Each pixel in the mask can have a value indicating
+            a ROI index.
+        imgs (List[np.ndarray]): A list of images.
+
+    Returns:
+        List[np.ndarray]: A list of masks for ROIs. For each image, pixels belonging to
+            ROIs with more than 60 pixels are set to 255, others are set to 0.
+    """
+    rois_mask = []
+
+    for mask, img in zip(masks, imgs):
+        raw_mask = np.zeros((img.shape[0], img.shape[1]), np.uint8)
+        for n in range(int(mask.max())):
+            ipix = (mask == n + 1).nonzero()
+            if len(ipix[0]) > 60:
+                raw_mask[ipix[0], ipix[1]] = 255
+        rois_mask.append(raw_mask)
+
+    return rois_mask
 
 
-def Apply_affine_methods(img2, img2_ROI, img1, img1_ROI, iterNum, method):
+def apply_affine_transformation(
+    target_image: np.ndarray,
+    target_image_roi: np.ndarray,
+    reference_image: np.ndarray,
+    reference_image_roi: np.ndarray,
+    iterations: int,
+    feature_method: str,
+) -> tuple:
+    """Apply an affine transformation between a target and reference image.
 
-    w = np.size(img2,1)
-    h = np.size(img2,0)
+    Args:
+        target_image (np.ndarray): Target image.
+        target_image_roi (np.ndarray): Region of Interest (ROI) of the target image.
+        reference_image (np.ndarray): Reference image.
+        reference_image_roi (np.ndarray): ROI of the reference image.
+        iterations (int): Number of iterations for transformation.
+        feature_method (str): Method to be used for feature detection.
 
-    feature_name = method + '-flann'
+    Returns:
+        tuple: Contains the transformation matrix, warped reference image, and warped
+            reference ROI.
+    """
+    width = target_image.shape[1]
+    height = target_image.shape[0]
+
+    feature_name = feature_method + "-flann"
     detector, matcher = init_feature(feature_name)
 
-    # Detect ROI counter on raw ROI
-    Img1_contours = measure.find_contours(img1_ROI , 128)
-    Img1_Cmax=0
-    Img1_K=0
-    for n, contour in enumerate(Img1_contours):
-        if len(contour[:, 1])>Img1_Cmax:
-            Img1_Cmax=len(contour[:, 1])
-    for n, contour in enumerate(Img1_contours):
-        if len(contour[:, 1])>(Img1_Cmax*(2/3)):
-            Img1_K+=1
+    # Detect ROI contour on raw ROI
+    reference_contours = measure.find_contours(reference_image_roi, 128)
+    max_contour_length = max(len(contour) for contour in reference_contours)
+    significant_contours_count = sum(
+        1
+        for contour in reference_contours
+        if len(contour) > (max_contour_length * 2 / 3)
+    )
 
-    # detect features
-    r_err=w*h*255
-    pool=ThreadPool(processes = cv.getNumberOfCPUs())
-    kp1, desc1 = affine_detect(detector, img1, pool=pool)
-    kp2, desc2 = affine_detect(detector, img2, pool=pool)
+    # Detect features
+    max_error = width * height * 255
+    pool = ThreadPool(processes=cv.getNumberOfCPUs())
+    keypoints1, descriptors1 = affine_detect(detector, reference_image, pool=pool)
+    keypoints2, descriptors2 = affine_detect(detector, target_image, pool=pool)
 
-    # choose best H
-    H=np.zeros((3,3))
-    inliers = 0
-    matched = 0
+    best_H = np.zeros((3, 3))
+    best_matches = 0
 
-    for i in range(iterNum):
-        ROI_temp=deepcopy(img2_ROI)
-        raw_matches = matcher.knnMatch(desc1, trainDescriptors = desc2, k = 2) #2
-        p1, p2, kp_pairs = filter_matches(kp1, kp2, raw_matches)
+    for _ in range(iterations):
+        temp_roi = deepcopy(target_image_roi)
+        raw_matches = matcher.knnMatch(descriptors1, trainDescriptors=descriptors2, k=2)
+        p1, p2, kp_pairs = filter_matches(keypoints1, keypoints2, raw_matches)
+
         if len(p1) >= 4:
             temp_H, status = cv.findHomography(p1, p2, cv.RANSAC, 3.0, 150000)
             kp_pairs = [kpp for kpp, flag in zip(kp_pairs, status) if flag]
-            temp_inliers=np.sum(status)
-            temp_matched=len(status)
-            img1_ROIwrap = cv.warpPerspective(img1_ROI, temp_H, (h, w))
-            img1_ROIwrap[img1_ROIwrap<255] = 0
 
-            # Detect ROI counter on registered ROI
-            Img1wrap_contours = measure.find_contours(img1_ROIwrap , 128)
+            temp_matches = len(status)
+            warped_roi = cv.warpPerspective(
+                reference_image_roi, temp_H, (height, width)
+            )
+            warped_roi[warped_roi < 255] = 0
 
-            Img1wrap_K=0
-            for n, contour in enumerate(Img1wrap_contours):
-                if len(contour[:, 1])>(Img1_Cmax*(2/3)) and len(contour[:, 1])<Img1_Cmax:
-                    Img1wrap_K+=1
+            # Detect ROI contour on registered ROI
+            warped_contours = measure.find_contours(warped_roi, 128)
+            warped_significant_contours_count = sum(
+                1
+                for contour in warped_contours
+                if (max_contour_length * 2 / 3) < len(contour) < max_contour_length
+            )
 
-            if Img1wrap_K<(Img1_K/2):
+            if warped_significant_contours_count < (significant_contours_count / 2):
                 continue
 
             # L1-Norm
-            temp_err =np.array(np.abs(ROI_temp-img1_ROIwrap))
-            err=np.sum(temp_err)
-            if err < r_err:
-                r_err = err
-                H = temp_H
-                inliers = temp_inliers
-                matched = temp_matched
-
+            error = np.sum(np.abs(temp_roi - warped_roi))
+            if error < max_error:
+                max_error = error
+                best_H = temp_H
+                best_matches = temp_matches
         else:
-            H, status = None, None
-            print('%d matches found, not enough for homography estimation' % len(p1))
+            best_H, status = None, None
+            logging.info(
+                "%d matches found, not enough for homography estimation", len(p1)
+            )
 
-    if matched>0:
-        img1_wrap = cv.warpPerspective(img1, H, (h, w))
-        img1_ROI_wrap = cv.warpPerspective(img1_ROI, H, (h, w))
-        T=H
+    if best_matches > 0:
+        warped_image = cv.warpPerspective(reference_image, best_H, (height, width))
+        warped_image_roi = cv.warpPerspective(
+            reference_image_roi, best_H, (height, width)
+        )
+        transformation_matrix = best_H
     else:
-        img1_wrap=np.zeros([h, w], np.uint8)
-        img1_ROI_wrap = np.zeros([h, w], np.uint8)
-        T= np.zeros([3, 3])
+        warped_image = np.zeros([height, width], np.uint8)
+        warped_image_roi = np.zeros([height, width], np.uint8)
+        transformation_matrix = np.zeros([3, 3])
 
-    return T, img1_wrap, img1_ROI_wrap
+    return transformation_matrix, warped_image, warped_image_roi
 
 
-def output_results(path, files, ID, Template, Template_ROI, Tmatrices, regImages, regROIs, method):
-    # save transformation matrix
-    if not (os.path.exists(path+'/A' + method.upper() + '/')):
-        os.makedirs(path+'/A' + method.upper() + '/')
-    k=0
-    for i in range(len(files)):
-        if i!=ID:
-            raw_data = {'Registered_file': [os.path.split(files[i])[1]],
-                        'Template_file': [os.path.split(files[ID])[1]],
-                        'Transformation_matrix':[Tmatrices[k]]}
-            df = pd.DataFrame(raw_data, columns = ['Registered_file', 'Template_file', 'Transformation_matrix'])
-            dfsave=path +'/A' + method.upper() + '/'+os.path.split(files[i])[1][:-4]+'.csv'
-            df.to_csv(dfsave)
+def output_results(
+    path: str,
+    files: List[Path],
+    template_id: int,
+    template_image: np.ndarray,
+    template_roi: np.ndarray,
+    transformation_matrices: List[np.ndarray],
+    registered_images: List[np.ndarray],
+    registered_rois: List[np.ndarray],
+    method: str,
+) -> None:
+    """Output results including transformation matrices and processed images.
 
-            output_Im=np.zeros([np.size(Template,1), np.size(Template,1), 3], np.uint8)
-            outlines1 = np.zeros(Template_ROI.shape, bool)
-            outlines1[find_boundaries(Template_ROI, mode='inner')] = 1
-            outX1, outY1 = np.nonzero(outlines1)
-            output_Im[outX1, outY1] = np.array([255, 0, 0])
+    Args:
+        path (Path): Output directory path.
+        files (List[Path]): List of file paths.
+        template_id (int): ID for the reference/template file in the list of files.
+        template_image (np.ndarray): Template image.
+        template_roi (np.ndarray): Region of Interest (ROI) of the template image.
+        transformation_matrices (List[np.ndarray]): List of transformation matrices.
+        registered_images (List[np.ndarray]): List of registered images.
+        registered_rois (List[np.ndarray]): List of registered ROIs.
+        method (str): Method used to register the images.
 
-            outlines2 = np.zeros(regROIs[k].shape, bool)
-            outlines2[find_boundaries(regROIs[k], mode='inner')] = 1
-            outX2, outY2 = np.nonzero(outlines2)
-            output_Im[outX2, outY2] = np.array([255, 255, 22])
+    Returns:
+        None: Results are saved to disk.
+    """
+    output_directory = Path(path) / f"A{method.upper()}"
+    output_directory.mkdir(parents=True, exist_ok=True)
 
-            img=cv.hconcat([cv.cvtColor(Template, cv.COLOR_GRAY2BGR),cv.cvtColor(regImages[k], cv.COLOR_GRAY2BGR), output_Im])
-            skimage.io.imsave(path+'/A' + method.upper() + '/results_' + os.path.split(files[i])[1], img)
-            k=k+1
+    k = 0
+    for i, file in enumerate(files):
+        template_path = Path(files[template_id])
+        template_name = template_path.name
+        if i != template_id:
+            file_path = Path(file)
+            raw_data = {
+                "Registered_file": [file_path.name],
+                "Template_file": [template_name],
+                "Transformation_matrix": [transformation_matrices[k]],
+            }
+            df = pd.DataFrame(raw_data)
+            df.to_csv(output_directory / f"{file_path.stem}.csv", index=False)
+
+            output_image = np.zeros(
+                [template_image.shape[1], template_image.shape[1], 3], np.uint8
+            )
+            outlines1 = np.zeros(template_roi.shape, bool)
+            outlines1[find_boundaries(template_roi, mode="inner")] = 1
+            out_x1, out_y1 = np.nonzero(outlines1)
+            output_image[out_x1, out_y1] = [255, 0, 0]
+
+            outlines2 = np.zeros(registered_rois[k].shape, bool)
+            outlines2[find_boundaries(registered_rois[k], mode="inner")] = 1
+            out_x2, out_y2 = np.nonzero(outlines2)
+            output_image[out_x2, out_y2] = [255, 255, 22]
+
+            concatenated_image = cv.hconcat(
+                [
+                    cv.cvtColor(template_image, cv.COLOR_GRAY2BGR),
+                    cv.cvtColor(registered_images[k], cv.COLOR_GRAY2BGR),
+                    output_image,
+                ]
+            )
+            io.imsave(output_directory / f"results_{file.name}", concatenated_image)
+            k += 1
