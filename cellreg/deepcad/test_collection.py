@@ -135,6 +135,7 @@ class testing_class:
 
     def read_modellist(self):
         model_path = self.pth_dir + "/" + self.denoise_model
+        print("MODEL PATH: ", model_path)
         model_list = list(os.walk(model_path, topdown=False))[-1][-1]
         model_list.sort()
 
