@@ -1,0 +1,11 @@
+# do_registration: 1 # motion correction, will be overwritten in script anyway to have `do_registration: 1`
+# reg_tif: True  # save tiff registration in batches, will be overwritten in script anyway to have `reg_tif: True`
+# roidetect: False  # whether to do segmentation after registration, will be overwritten in script anyway to have `roidetect: False`
+two_step_registration: 1.0  # important for registration, esp. for low SNR
+nimg_init: 1000  # num frames initial to use as reference for registration
+block_size: [256, 256]  # matters for registration
+nonrigid: True  # important for registration
+keep_movie_raw: True  # whether to keep raw binary file
+fs: 5  # estimates across planes
+combined: False  # whether to combine across planes
+tau: 0.57  # calcium dynamics for deconv, possibly not correct
