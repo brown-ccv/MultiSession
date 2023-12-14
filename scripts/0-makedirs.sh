@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# TODO: consider changing "4-muse" to "4-roicat"
+
 # define constants
 SINGLE_SESSION_SUBDIRS=( "0-raw" "1-moco" "2-deepcad" "3-suite2p" "4-muse" )
 MULTI_SESSION_DIR="multi-session"
@@ -15,6 +17,8 @@ PLANE_LIST=( "plane0" "plane1" )
 for SUBDIR in "${SINGLE_SESSION_SUBDIRS[@]}"; do
     mkdir -p "$LOG_DIR/$SUBDIR"
 done
+
+mkdir -p "$LOG_DIR/4-roicat"
 
 # loop through combinations
 for SUBJECT in "${SUBJECT_LIST[@]}"; do

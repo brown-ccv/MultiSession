@@ -42,3 +42,12 @@ python cellreg/3-suite2p.py \
     --plane "$PLANE" \
     --config "$SUITE2P_CFG_PATH" \
     --cleanup
+    
+    
+# after all dates are done
+# cpu env is sufficient
+conda activate roicat
+python cellreg/4-roicat.py \
+    --root-datadir "$ROOT_DATADIR" \
+    --subject "$SUBJECT" \
+    --plane "$PLANE"

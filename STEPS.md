@@ -293,4 +293,68 @@ The folders under `3-suite2p` will be very familiar in terms of namings and orga
 
 ### 4-roicat: Multisession registration using `roicat`
 
-TBD
+**Purpose**: this uses `roicat` on the segmented data from `suite2p` step, in a CPU environment on Oscar, preferably high number of CPUs and sufficient memory. GPU is possible but not tested yet.
+
+**TODO**
+- [ ] consider changing "4-muse" to "4-roicat"
+- [ ] parameterize to a config file from `scripts/4-roicat.sh`
+- [ ] refactor the long `scripts/4-roicat.sh` into smaller chunks
+- [ ] save the results from `multi-session` collective folder back to relevant single-session directories, such as ROI mapping and aligned FOV 
+
+**Task**:
+
+- Please edit the variables under `# define variables` in `scripts/4-roicat.sh` before running
+
+- Then run:
+
+```shell
+sbatch scripts/4-roicat.sh
+```
+
+- You can check whether your job is run with `myq`, take note of the `ID` column, then you can view the log file under `logs/4-roicat/logs-<JOB_IB>.out`.
+
+**Output**: The following is an example output directory tree from the script:
+
+<details><summary>Click to expand example output</summary>
+
+```
+MS2457/multi-session/
+├── plane0
+│   ├── aligned-images.pkl
+│   ├── figures
+│   │   ├── FOV_clusters_allrois.gif
+│   │   ├── FOV_clusters_iscells.gif
+│   │   ├── aligned-fov.png
+│   │   ├── aligned-rois.png
+│   │   ├── cluster-metrics.png
+│   │   ├── num-persist-roi-overall.png
+│   │   ├── num-persist-roi-per-session.png
+│   │   ├── pw-sim-distrib.png
+│   │   └── pw-sim-scatter.png
+│   ├── finalized-roi.csv
+│   ├── roicat-output.pkl
+│   └── summary-roi.csv
+└── plane1
+    ├── aligned-images.pkl
+    ├── figures
+    │   ├── FOV_clusters_allrois.gif
+    │   ├── FOV_clusters_iscells.gif
+    │   ├── aligned-fov.png
+    │   ├── aligned-rois.png
+    │   ├── cluster-metrics.png
+    │   ├── num-persist-roi-overall.png
+    │   ├── num-persist-roi-per-session.png
+    │   ├── pw-sim-distrib.png
+    │   └── pw-sim-scatter.png
+    ├── finalized-roi.csv
+    ├── roicat-output.pkl
+    └── summary-roi.csv
+```
+
+The output data of `roicat` is in `roicat-output.pkl`
+
+For visual inspection: see the figures in `figures`
+
+For analysis: `finalized-roi.csv` is what you may want
+
+</details>
