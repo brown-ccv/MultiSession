@@ -1,0 +1,29 @@
+do_registration: True 
+two_step_registration: 1.0  # important for registration, esp. for low SNR
+nimg_init: 1000  # num frames initial to use as reference for registration
+block_size: [256, 256]  # matters for registration
+nonrigid: True  # important for registration
+reg_tif: False  # save tiff registration in batches
+keep_movie_raw: False  # whether to keep raw binary file
+fs: 50 # HACK! estimates across planes, currently artificially increase, see https://github.com/MouseLand/suite2p/issues/1073
+combined: False  # whether to combine across planes
+roidetect: True  # whether to do segmentation after registration
+tau: 0.57  # calcium dynamics for deconv, possibly not correct
+# 1Preg: False  # DEFAULT, not relevant for 2P
+# spatial_hp_reg: 42.0  # DEFAULT, not relevant for 2P    
+# snr_thresh: 1.2  # DEFAULT, SNR for non-rigid registration 
+maxregshift: 0.01 # see https://github.com/MouseLand/suite2p/issues/273
+maxregshiftNR: 4.0  # relevant for registration
+# smooth_sigma: 1.15  # DEFAULT, relevant for only rigid 
+# smooth_sigma_time: 0.0  # DEFAULT, relevant for only rigid 
+# maxregshift: 0.1  # DEFAULT, relevant for non-rigid
+# reg_tif_chan2: False  # DEFAULT, not relevant, whether to write reg binary of chan2 to tiff file
+pre_smooth: 2.0  # UNCLEAR WHETHER or not relevant for 2p registration, can turn to 0.0
+sparse_mode: False
+# spatial_scale: 2  # segmentation
+max_iterations: 100  # segmentation
+threshold_scaling: 2.0  # segmentation
+max_overlap: 0.95  # segmentation
+# denoise: 1.0  # segmentation ; turn this off post-deepcad
+# flow_threshold: 0.0 # use default instead, which is 1.5
+anatomical_only: 1 # segmentation (whether or not to use cellpose)

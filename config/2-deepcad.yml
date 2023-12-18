@@ -1,0 +1,11 @@
+patch_x: 150
+patch_y: 150
+patch_t: 150
+overlap_factor: 0.6
+scale_factor: 1
+pth_dir: "/oscar/data/afleisc2/collab/multiday-reg/MultiSession/deepcad_model"
+fmap: 16
+GPU: '0'
+num_workers: 0
+visualize_images_per_epoch: False
+save_test_images_per_epoch: True
