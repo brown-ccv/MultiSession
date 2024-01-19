@@ -21,8 +21,9 @@ python cellreg/1-moco.py \
 # gpu env
 # e.g.: interact -q gpu -g 1 -t 01:00:00 -m 64g -n 4 
 conda activate deepcad
-# not sure how to automated the following environment setting
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
+
+# try the following if there's an error with the `python cellreg/2-deepcad.py` step
+# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
 
 python cellreg/2-deepcad.py \
     --root-datadir "$ROOT_DATADIR" \
@@ -51,3 +52,4 @@ python cellreg/4-roicat.py \
     --root-datadir "$ROOT_DATADIR" \
     --subject "$SUBJECT" \
     --plane "$PLANE"
+

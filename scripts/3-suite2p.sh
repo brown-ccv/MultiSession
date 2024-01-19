@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH -N 1
 #SBATCH -n 16
+#SBATCH -p batch
 #SBATCH --account=carney-afleisc2-condo
 #SBATCH --time=03:00:00
 #SBATCH --mem=30g
@@ -20,12 +21,12 @@ DATE_LIST=( "20230902" "20230907" "20230912" )
 PLANE_LIST=( "plane0" "plane1" )
 
 # activate environment
-module load miniconda/4.12.0
-source /gpfs/runtime/opt/miniconda/4.12.0/etc/profile.d/conda.sh
-conda activate suite2p
-which python
-python "$EXEC_FILE" --help
+module load miniconda3/23.11.0s
+source /oscar/rt/9.2/software/external/miniconda3/23.11.0/etc/profile.d/conda.sh
 
+conda activate suite2p
+command -v python
+python "$EXEC_FILE" --help
 
 # loop through combinations
 for SUBJECT in "${SUBJECT_LIST[@]}"; do
@@ -55,6 +56,4 @@ for PLANE in "${PLANE_LIST[@]}"; do
 done
 done
 done
-
-
 

@@ -2,13 +2,27 @@
 
 ## Multiple environment setups
 
-There are at least 3 environments that need to be created to manage steps separately:
+There are at least 3 environments that need to be created to manage steps separately.
 
-```shell
-conda env create -f environments/suite2p.yml
-conda env create -f environments/deepcad.yml
-conda env create -f environments/roicat.yml
-```
+- First load `miniconda3` module:
+
+    ```shell
+    module load miniconda3/23.11.0s
+    ```
+
+- If you have loaded this before, also do the following. Note: you only need to this **ONCE**.
+
+    ```shell
+    conda init bash
+    ```
+
+- Then do the following to create all three environments:
+ 
+    ```shell
+    conda env create -f environments/suite2p.yml
+    conda env create -f environments/deepcad.yml
+    conda env create -f environments/roicat.yml
+    ```
 
 ## Steps
 

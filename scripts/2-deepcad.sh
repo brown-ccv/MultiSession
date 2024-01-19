@@ -3,7 +3,6 @@
 #SBATCH --account=carney-afleisc2-condo
 #SBATCH -N 1
 #SBATCH -n 4
-#SBATCH --account=carney-afleisc2-condo
 #SBATCH --time=01:00:00
 #SBATCH --mem=64g
 #SBATCH --job-name 2-deepcad
@@ -22,14 +21,15 @@ DATE_LIST=( "20230902" "20230907" "20230912" )
 PLANE_LIST=( "plane0" "plane1" )
 
 # activate environment
-module load miniconda/4.12.0
-source /gpfs/runtime/opt/miniconda/4.12.0/etc/profile.d/conda.sh
+module load miniconda3/23.11.0s
+source /oscar/rt/9.2/software/external/miniconda3/23.11.0/etc/profile.d/conda.sh
+
 conda activate deepcad
 
-# not sure how to automated the following environment setting
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
+# TODO: check if this is needed anymore
+# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
 
-which python
+command -v python
 python "$EXEC_FILE" --help
 
 
@@ -61,6 +61,4 @@ for PLANE in "${PLANE_LIST[@]}"; do
 done
 done
 done
-
-
 

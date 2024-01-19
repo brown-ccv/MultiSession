@@ -7,11 +7,11 @@ This package is intended for use on Oscar with GPU support for PyTorch.
 To use on Oscar, first clone the repo. Then load the anaconda module:
 
 ```shell
-module load anaconda/2022.05
-source /gpfs/runtime/opt/anaconda/2022.05/etc/profile.d/conda.sh
+module load miniconda3/23.11.0s
+source /oscar/rt/9.2/software/external/miniconda3/23.11.0/etc/profile.d/conda.sh
 ```
 
-If you have never loaded the `anaconda/2022.05` module before, you need to initialize
+If you have never loaded the `miniconda3/23.11.0s` module before, you need to initialize
 the conda module by running the following command.
 
 ```shell
