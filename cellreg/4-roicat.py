@@ -71,6 +71,16 @@ if __name__ == "__main__":
         "--max-depth", type=int, default=6,
         help='max depth to find suite2p files, relative to `--root-datadir`'
     )
+    
+    parser.add_argument(
+        "--suite2p-subdir", type=str, default='3-suite2p',
+        help='suite2p subdirectory'
+    )
+
+    parser.add_argument(
+        "--output-topdir", type=str, default='',
+        help='output top directory, if empty, will use the subject folder'
+    )
 
     args = parser.parse_args()
     print(args)
@@ -84,9 +94,14 @@ if __name__ == "__main__":
     USE_GPU=args.use_gpu
     VERBOSITY = args.verbose
     
+    OUTPUT_DIR=args.output_topdir
+    SUITE2P_SUBDIR=args.suite2p_subdir
+    
     # define paths
     SUBJECT_DIR = Path(ROOT_DATA_DIR) / SUBJECT_ID
-    COLLECTIVE_MUSE_DIR = SUBJECT_DIR / 'multi-session' / PLANE_ID
+    if OUTPUT_DIR in [None, '']:
+        OUTPUT_DIR = SUBJECT_DIR
+    COLLECTIVE_MUSE_DIR = OUTPUT_DIR / 'multi-session' / PLANE_ID
     COLLECTIVE_MUSE_FIG_DIR = COLLECTIVE_MUSE_DIR / 'figures'
     COLLECTIVE_MUSE_FIG_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -94,7 +109,7 @@ if __name__ == "__main__":
     dir_allOuterFolders = str(SUBJECT_DIR)
     pathSuffixToStat = 'stat.npy'
     pathSuffixToOps = 'ops.npy'
-    pathShouldHave = fr'3-suite2p/{PLANE_ID}'
+    pathShouldHave = fr'{SUITE2P_SUBDIR}/{PLANE_ID}'
     
     paths_allStat = roicat.helpers.find_paths(
         dir_outer=dir_allOuterFolders,
@@ -115,18 +130,19 @@ if __name__ == "__main__":
 
 
     print('Paths to all suite2p STAT files:')
-    print('\n'.join(['\t-' + str(x) for x in paths_allStat]))
+    print('\n'.join(['\t- ' + str(x) for x in paths_allStat]))
     print('\n')
     print('Paths to all suite2p OPS files:')
-    print('\n'.join(['\t-' + str(x) for x in paths_allOps]))
+    print('\n'.join(['\t- ' + str(x) for x in paths_allOps]))
     print('\n')
     
-    # load data
+    # load data    
     data = roicat.data_importing.Data_suite2p(
         paths_statFiles=paths_allStat[:],
         paths_opsFiles=paths_allOps[:],
         um_per_pixel=PARAMS['um_per_pixel'],
-        **PARAMS['suite2p'],
+        type_meanImg='meanImg', # will be overwritten in the following cell
+        **{k: v for k, v in PARAMS['suite2p'].items() if k not in ['type_meanImg']},
         verbose=VERBOSITY,
     )
 
@@ -150,8 +166,31 @@ if __name__ == "__main__":
     FOV_backgrounds = {k: [] for k in background_types}
     for ops_file in data.paths_ops:
         ops = np.load(ops_file, allow_pickle=True).item()
+
+        im_sz = (ops['Ly'], ops['Lx'])    
         for bg in background_types:
-            FOV_backgrounds[bg].append(ops[bg])
+            bg_im = ops[bg]
+
+            if bg_im.shape == im_sz:
+                FOV_backgrounds[bg].append(bg_im)
+                continue
+
+            print(
+                f'\t- File {ops_file}: {bg} shape is {bg_im.shape}, which is cropped from {im_sz}. '\
+                '\n\tWill attempt to add empty pixels to recover the original shape.'
+            )
+
+            im = np.zeros(im_sz).astype(bg_im.dtype)
+            cropped_xrange, cropped_yrange = ops['xrange'], ops['yrange']
+            im[
+                cropped_yrange[0]:cropped_yrange[1],
+                cropped_xrange[0]:cropped_xrange[1]
+            ] = bg_im
+
+            FOV_backgrounds[bg].append(im)
+
+    # choice of FOV images to align
+    data.FOV_images = FOV_backgrounds[PARAMS['suite2p']['type_meanImg']]
     
     # obtain FOVs
     aligner = roicat.tracking.alignment.Aligner(verbose=VERBOSITY)
