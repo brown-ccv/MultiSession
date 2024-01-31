@@ -19,8 +19,7 @@ PLANE_LIST=( "plane0" "plane1" )
 
 # activate environment
 module load miniconda3/23.11.0s
-source /oscar/rt/9.2/software/external/miniconda3/23.11.0/etc/profile.d/conda.sh
-
+source /oscar/runtime/software/external/miniconda3/23.11.0/etc/profile.d/conda.sh
 conda activate roicat
 command -v python
 python "$EXEC_FILE" --help

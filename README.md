@@ -8,7 +8,7 @@ To use on Oscar, first clone the repo. Then load the anaconda module:
 
 ```shell
 module load miniconda3/23.11.0s
-source /oscar/rt/9.2/software/external/miniconda3/23.11.0/etc/profile.d/conda.sh
+source /oscar/runtime/software/external/miniconda3/23.11.0/etc/profile.d/conda.sh
 ```
 
 If you have never loaded the `miniconda3/23.11.0s` module before, you need to initialize
