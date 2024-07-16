@@ -1,0 +1,12 @@
+name: suite2p
+channels:
+    - conda-forge
+    - defaults
+dependencies:
+    - "python=3.9"
+    - pip
+    - ipykernel
+    - pip:
+        - "suite2p"
+        - pyyaml
+

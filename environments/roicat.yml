@@ -1,0 +1,13 @@
+name: roicat
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - ipykernel
+  - ipython
+  - pip
+  - pip:
+    - "roicat[all]"
+    - "git+https://github.com/RichieHakim/roiextractors"
+
